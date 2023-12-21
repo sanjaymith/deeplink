@@ -1,0 +1,138 @@
+package com.studio.deeplinktester.activity
+
+import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.widget.doOnTextChanged
+import androidx.databinding.DataBindingUtil
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.studio.deeplinktester.DeepLinkApplication
+import com.studio.deeplinktester.R
+import com.studio.deeplinktester.adapter.DeepLinkListAdapter
+import com.studio.deeplinktester.databinding.ActivityMainBinding
+import com.studio.deeplinktester.room.model.DeepLinkData
+import com.studio.deeplinktester.viewmodel.DeepLinkViewModel
+import com.studio.deeplinktester.viewmodel.DeepLinkViewModelFactory
+
+
+
+class MainActivity : AppCompatActivity() {
+
+    private val deepLinkViewModel: DeepLinkViewModel by viewModels {
+        DeepLinkViewModelFactory((application as DeepLinkApplication).repository)
+    }
+
+    private var adapter: DeepLinkListAdapter? = null
+    private var binding: ActivityMainBinding? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+
+        binding = DataBindingUtil.setContentView(this, R.layout.activity_main)
+        setUpUi()
+    }
+
+    private fun setUpUi() {
+        setUpActionButtonFunctionality()
+        setUpRecyclerView()
+        observeDataBase()
+    }
+
+    private fun observeDataBase() {
+        deepLinkViewModel.allDeepLinks.observe(this) { deeplinks ->
+            adapter?.submitList(deeplinks)
+        }
+    }
+
+    private fun setUpRecyclerView() {
+        adapter = DeepLinkListAdapter(object : DeepLinkListAdapter.ActionListener {
+            override fun onPlayButtonClick(deeplink: String) {
+                fireDeeplink(deeplink)
+            }
+
+            override fun onDeleteButtonClick(deeplink: String) {
+                deepLinkViewModel.delete(deeplink)
+            }
+
+            override fun onCopyButtonClick(deeplink: String) {
+                copyText(deeplink)
+            }
+        })
+        binding?.recyclerview?.adapter = adapter
+        binding?.recyclerview?.layoutManager = LinearLayoutManager(this)
+
+        val itemTouchCallback = getItemTouchCallback()
+
+        val itemTouchHelper = ItemTouchHelper(itemTouchCallback)
+        itemTouchHelper.attachToRecyclerView(binding?.recyclerview)
+    }
+
+    private fun getItemTouchCallback(): ItemTouchHelper.SimpleCallback {
+        return  object :
+            ItemTouchHelper.SimpleCallback(
+                0,
+                ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT
+            ) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                return false
+            }
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, swipeDir: Int) {
+                deepLinkViewModel.allDeepLinks?.value?.get(viewHolder.adapterPosition)?.deeplink?.let { deeplink ->
+                    deepLinkViewModel.delete(deeplink)
+                }
+            }
+
+
+        }
+    }
+
+    private fun setUpActionButtonFunctionality() {
+        // to enable and disable action button
+        binding?.outlinedTextField?.editText?.doOnTextChanged { text, _, _, _ ->
+            binding?.actionButton?.isEnabled = !text.isNullOrBlank()
+        }
+
+        binding?.actionButton?.setOnClickListener {
+            fireDeeplink(binding?.outlinedTextField?.editText?.text.toString())
+        }
+    }
+
+    private fun copyText(text: String) {
+        val clipboard: ClipboardManager? = this.getSystemService(CLIPBOARD_SERVICE) as ClipboardManager?
+        val clip = ClipData.newPlainText("Deeplink Copied", text)
+        clipboard?.setPrimaryClip(clip)
+
+        Toast.makeText(this, "Deeplink Copied : $text", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun fireDeeplink(deeplink: String) {
+        try {
+            startActivity(
+                Intent(Intent.ACTION_VIEW).apply {
+                    data = Uri.parse(deeplink)
+                }
+            )
+            deepLinkViewModel.insert(DeepLinkData(deeplink, System.currentTimeMillis()))
+        } catch (exception: ActivityNotFoundException) {
+            Toast.makeText(this, "No App found to handle this deeplink", Toast.LENGTH_LONG).show()
+        } catch (exception: Exception) {
+            Toast.makeText(this, "Please enter the correct deeplink", Toast.LENGTH_LONG).show()
+        }
+    }
+
+}
